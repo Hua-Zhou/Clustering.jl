@@ -39,7 +39,7 @@ function kmeans!(X::Matrix{T}, centers::Matrix{T};
     if weights == nothing
         globalcenters = Statistics.mean(X, dims=2)[:]
     else
-        globalcenters = StatsBase.mean(X, weights, 2)
+        globalcenters = StatsBase.mean(X, StatsBase.weights(weights), 2)[:]
     end
     spcriterion = Vector{T}(undef, m)
     spsortidx = collect(1:m)

@@ -36,7 +36,11 @@ function kmeans!(X::Matrix{T}, centers::Matrix{T};
     costs = zeros(T, n)
     counts = Vector{Int}(undef, k)
     cweights = Vector{Float64}(undef, k)
-    globalcenters = Statistics.mean(X, dims=2)[:] # TODO: consider weights
+    if weights == nothing
+        globalcenters = Statistics.mean(X, dims=2)[:]
+    else
+        globalcenters = StatsBase.mean(X, weights, 2)
+    end
     spcriterion = Vector{T}(undef, m)
     spsortidx = collect(1:m)
 

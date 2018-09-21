@@ -11,6 +11,7 @@ mutable struct KmeansResult{T<:AbstractFloat} <: ClusteringResult
     totalcost::Float64         # total cost (i.e. objective) (k)
     iterations::Int            # number of elapsed iterations
     converged::Bool            # whether the procedure converged
+    unshared::Vector{Bool}     # whether each feature is unshared or shared across centers
 end
 
 const _kmeans_default_init = :kmpp
@@ -43,11 +44,12 @@ function kmeans!(X::Matrix{T}, centers::Matrix{T};
     end
     spcriterion = Vector{T}(undef, m)
     spsortidx = collect(1:m)
+    unshared = fill(true, m) # whether each feature is unshared or shared
 
     _kmeans!(X, conv_weights(T, n, weights), centers,
              assignments, costs, counts, cweights,
              round(Int, maxiter), tol, display_level(display), distance, 
-             Int(sparsity), globalcenters, spcriterion, spsortidx)
+             Int(sparsity), globalcenters, spcriterion, spsortidx, unshared)
 end
 
 function kmeans(X::Matrix{T}, k::Int;
@@ -92,6 +94,7 @@ function _kmeans!(
     globalcenters::Vector{T},       # in: feature global centers (d)
     spcriterion::Vector{T},         # out: criterion for feature selection (d)
     spsortidx::Vector{Int},         # out: sort index for feature selection (d)
+    unshared::Vector{Bool}          # out: whether each feature is unshared or shared (d)
     ) where T<:AbstractFloat
 
     # initialize
@@ -121,7 +124,7 @@ function _kmeans!(
         # update (affected) centers
 
         update_centers!(x, w, assignments, to_update, centers, cweights, 
-            sparsity, globalcenters, spcriterion, spsortidx)
+            sparsity, globalcenters, spcriterion, spsortidx, unshared)
 
         if !isempty(unused)
             repick_unused_centers(x, costs, centers, unused)
@@ -177,7 +180,7 @@ function _kmeans!(
     end
 
     return KmeansResult(centers, assignments, costs, counts, cweights,
-                        Float64(objv), t, converged)
+                        Float64(objv), t, converged, unshared)
 end
 
 
@@ -192,7 +195,8 @@ function update_assignments!(
     costs::Vector{T},           # out: costs of the resultant assignment (n)
     counts::Vector{Int},        # out: number of samples assigned to each cluster (k)
     to_update::Vector{Bool},    # out: whether a center needs update (k)
-    unused::Vector{Int}) where T<:AbstractFloat        # out: the list of centers get no samples assigned to it
+    unused::Vector{Int}         # out: the list of centers get no samples assigned to it
+    ) where T<:AbstractFloat        
 
     k::Int, n::Int = size(dmat)
 
@@ -267,6 +271,7 @@ function update_centers!(
     globalcenters::Vector{T},       # in: feature global centers (d)
     spcriterion::Vector{T},         # out: criterion for feature selection (d)
     spsortidx::Vector{Int},         # out: sort index for feature selection (d)
+    unshared::Vector{Bool}          # out: whether each feature is unshared or not
     ) where T<:AbstractFloat
 
     d::Int = size(x, 1)
@@ -320,8 +325,10 @@ function update_centers!(
             spcriterion[i] -= n * globalcenters[i] * globalcenters[i]
         end
         # replace shared feature centers by global feature centers
+        fill!(unshared, true)
         sortperm!(spsortidx, spcriterion, initialized=true)
-        for i = 1:(d - sparsity)
+        for i = 1:(d - sparsity) # shared features
+            unshared[spsortidx[i]] = false
             centers[spsortidx[i], :] .= globalcenters[spsortidx[i]]
         end
     end
@@ -343,7 +350,8 @@ function update_centers!(
     globalcenters::Vector{T},       # in: feature global centers (d)
     spcriterion::Vector{T},         # out: criterion for feature selection (d)
     spsortidx::Vector{Int},         # out: sort index for feature selection (d)
-) where T<:AbstractFloat
+    unshared::Vector{Bool}          # out: indicate each feature is unshared or shared
+    ) where T<:AbstractFloat
 
     d::Int = size(x, 1)
     n::Int = size(x, 2)
@@ -393,8 +401,10 @@ function update_centers!(
             spcriterion[i] -= totalweight * globalcenters[i] * globalcenters[i]
         end
         # replace shared feature centers by global feature centers
+        fill!(unshared, true)
         sortperm!(spsortidx, spcriterion, initialized=true)
         for i in 1:(d - sparsity)
+            unshared[spsortidx[i]] = false
             centers[spsortidx[i], :] .= globalcenters[spsortidx[i]]
         end
     end

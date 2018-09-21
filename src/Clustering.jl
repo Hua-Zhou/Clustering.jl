@@ -17,7 +17,7 @@ module Clustering
 
     # common
     ClusteringResult,
-    nclusters, counts, assignments,
+    nclusters, counts, assignments, nunsharedfeatures, nsharedfeatures,
 
     # seeding
     SeedingAlgorithm,

@@ -41,6 +41,7 @@ x = rand(m, n)
     @test sum(r.counts) == n
     @test r.cweights == map(Float64, r.counts)
     @test sum(r.costs) ≈ r.totalcost
+    @test nunsharedfeatures(r) == sparsity
 end
 
 @testset "non-weighted (float32)" begin
@@ -54,6 +55,7 @@ end
     @test sum(r.counts) == n
     @test r.cweights == map(Float64, r.counts)
     @test sum(r.costs) ≈ r.totalcost
+    @test nunsharedfeatures(r) == sparsity
 end
 
 @testset "weighted" begin
@@ -66,6 +68,7 @@ end
     @test length(r.costs) == n
     @test length(r.counts) == k
     @test sum(r.counts) == n
+    @test nunsharedfeatures(r) == sparsity
 
     cw = zeros(k)
     for i = 1:n
@@ -90,6 +93,7 @@ end
     for fn in fieldnames(typeof(r))
         @test getfield(r, fn) == getfield(r2, fn)
     end
+    @test nunsharedfeatures(r) == sparsity
 end
 
 end

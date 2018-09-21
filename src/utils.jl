@@ -9,7 +9,8 @@ abstract type ClusteringResult end
 nclusters(R::ClusteringResult) = length(R.counts)
 counts(R::ClusteringResult) = R.counts
 assignments(R::ClusteringResult) = R.assignments
-
+nunsharedfeatures(R::ClusteringResult) = count(R.unshared)
+nsharedfeatures(R::ClusteringResult) = length(R.unshared) - count(R.unshared)
 
 ##### convert weight options
 

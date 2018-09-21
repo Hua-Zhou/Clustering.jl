@@ -23,21 +23,27 @@ function kmeans!(X::Matrix{T}, centers::Matrix{T};
                  maxiter::Integer=_kmeans_default_maxiter,
                  tol::Real=_kmeans_default_tol,
                  display::Symbol=_kmeans_default_display,
-                 distance::SemiMetric=SqEuclidean()) where T<:AbstractFloat
+                 distance::SemiMetric=SqEuclidean(),
+                 sparsity::Integer=size(X, 1)) where T<:AbstractFloat
 
     m, n = size(X)
     m2, k = size(centers)
     m == m2 || throw(DimensionMismatch("Inconsistent array dimensions."))
     (2 <= k < n) || error("k must have 2 <= k < n.")
+    (1 ≤ sparsity ≤ m) || error("sparsity must be 1 ≤ sparsity ≤ m.")
 
     assignments = zeros(Int, n)
     costs = zeros(T, n)
     counts = Vector{Int}(undef, k)
     cweights = Vector{Float64}(undef, k)
+    globalcenters = Statistics.mean(X, dims=2)[:] # TODO: consider weights
+    spcriterion = Vector{T}(undef, m)
+    spsortidx = collect(1:m)
 
     _kmeans!(X, conv_weights(T, n, weights), centers,
              assignments, costs, counts, cweights,
-             round(Int, maxiter), tol, display_level(display), distance)
+             round(Int, maxiter), tol, display_level(display), distance, 
+             Int(sparsity), globalcenters, spcriterion, spsortidx)
 end
 
 function kmeans(X::Matrix{T}, k::Int;
@@ -46,10 +52,12 @@ function kmeans(X::Matrix{T}, k::Int;
                 maxiter::Integer=_kmeans_default_maxiter,
                 tol::Real=_kmeans_default_tol,
                 display::Symbol=_kmeans_default_display,
-                distance::SemiMetric=SqEuclidean()) where T<:AbstractFloat
+                distance::SemiMetric=SqEuclidean(),
+                sparsity::Integer=size(X, 1)) where T<:AbstractFloat
 
     m, n = size(X)
     (2 <= k < n) || error("k must have 2 <= k < n.")
+    (1 ≤ sparsity ≤ m) || error("sparsity must be 1 ≤ sparsity ≤ m.")
     iseeds = initseeds(init, X, k)
     centers = copyseeds(X, iseeds)
     kmeans!(X, centers;
@@ -57,7 +65,8 @@ function kmeans(X::Matrix{T}, k::Int;
             maxiter=maxiter,
             tol=tol,
             display=display,
-            distance=distance)
+            distance=distance,
+            sparsity=sparsity)
 end
 
 #### Core implementation
@@ -74,7 +83,12 @@ function _kmeans!(
     maxiter::Int,                   # in: maximum number of iterations
     tol::Real,                      # in: tolerance of change at convergence
     displevel::Int,                 # in: the level of display
-    distance::SemiMetric) where T<:AbstractFloat             # in: function to calculate the distance with
+    distance::SemiMetric,           # in: function to calculate the distance with
+    sparsity::Int,                  # in: number of features to keep unshared
+    globalcenters::Vector{T},       # in: feature global centers (d)
+    spcriterion::Vector{T},         # out: criterion for feature selection (d)
+    spsortidx::Vector{Int},         # out: sort index for feature selection (d)
+    ) where T<:AbstractFloat
 
     # initialize
 
@@ -102,7 +116,8 @@ function _kmeans!(
 
         # update (affected) centers
 
-        update_centers!(x, w, assignments, to_update, centers, cweights)
+        update_centers!(x, w, assignments, to_update, centers, cweights, 
+            sparsity, globalcenters, spcriterion, spsortidx)
 
         if !isempty(unused)
             repick_unused_centers(x, costs, centers, unused)
@@ -134,7 +149,7 @@ function _kmeans!(
         objv = w === nothing ? sum(costs) : dot(w, costs)
         objv_change = objv - prev_objv
 
-        if objv_change > tol
+        if t > 1 && objv_change > tol
             @warn("The objective value changes towards an opposite direction")
         end
 
@@ -239,11 +254,16 @@ end
 #
 function update_centers!(
     x::Matrix{T},                   # in: sample matrix (d x n)
-    w::Nothing,                        # in: sample weights
+    w::Nothing,                     # in: sample weights
     assignments::Vector{Int},       # in: assignments (n)
     to_update::Vector{Bool},        # in: whether a center needs update (k)
     centers::Matrix{T},             # out: updated centers (d x k)
-    cweights::Vector) where T<:AbstractFloat               # out: updated cluster weights (k)
+    cweights::Vector,               # out: updated cluster weights (k)
+    sparsity::Int,                  # in: number of features to keep unshared     
+    globalcenters::Vector{T},       # in: feature global centers (d)
+    spcriterion::Vector{T},         # out: criterion for feature selection (d)
+    spsortidx::Vector{Int},         # out: sort index for feature selection (d)
+    ) where T<:AbstractFloat
 
     d::Int = size(x, 1)
     n::Int = size(x, 2)
@@ -282,6 +302,23 @@ function update_centers!(
             for i = 1:d
                 @inbounds vj[i] *= cj
             end
+        end
+    end
+
+    # sparse feature selection
+    if sparsity < d
+        # compute the sparsity criterion
+        fill!(spcriterion, 0)
+        for i in 1:d # features
+            for j in 1:k    # centers
+                spcriterion[i] += cweights[j] * centers[i, j] * centers[i, j]
+            end
+            spcriterion[i] -= n * globalcenters[i]^2
+        end
+        # replace shared feature centers by global feature centers
+        sortperm!(spsortidx, spcriterion, initialized=true)
+        for i = 1:(d - sparsity)
+            centers[spsortidx[i], :] .= globalcenters[spsortidx[i]]
         end
     end
 end

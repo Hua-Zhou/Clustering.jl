@@ -317,7 +317,7 @@ function update_centers!(
             for j in 1:k    # centers
                 spcriterion[i] += cweights[j] * centers[i, j] * centers[i, j]
             end
-            spcriterion[i] -= n * globalcenters[i]^2
+            spcriterion[i] -= n * globalcenters[i] * globalcenters[i]
         end
         # replace shared feature centers by global feature centers
         sortperm!(spsortidx, spcriterion, initialized=true)
@@ -338,7 +338,11 @@ function update_centers!(
     assignments::Vector{Int},       # in: assignments (n)
     to_update::Vector{Bool},        # in: whether a center needs update (k)
     centers::Matrix{T},             # out: updated centers (d x k)
-    cweights::Vector                # out: updated cluster weights (k)
+    cweights::Vector,               # out: updated cluster weights (k)
+    sparsity::Int,                  # in: number of features to keep unshared     
+    globalcenters::Vector{T},       # in: feature global centers (d)
+    spcriterion::Vector{T},         # out: criterion for feature selection (d)
+    spsortidx::Vector{Int},         # out: sort index for feature selection (d)
 ) where T<:AbstractFloat
 
     d::Int = size(x, 1)
@@ -374,6 +378,24 @@ function update_centers!(
     for j = 1:k
         if to_update[j]
             @inbounds centers[:, j] .*= 1 / cweights[j]
+        end
+    end
+
+    # sparse feature selection
+    if sparsity < d
+        # compute the sparsity criterion
+        totalweight = sum(cweights)
+        fill!(spcriterion, 0)
+        for i in 1:d # features
+            for j in 1:k # centers
+                spcriterion[i] += cweights[j] * centers[i, j] * centers[i, j]
+            end
+            spcriterion[i] -= totalweight * globalcenters[i] * globalcenters[i]
+        end
+        # replace shared feature centers by global feature centers
+        sortperm!(spsortidx, spcriterion, initialized=true)
+        for i in 1:(d - sparsity)
+            centers[spsortidx[i], :] .= globalcenters[spsortidx[i]]
         end
     end
 end

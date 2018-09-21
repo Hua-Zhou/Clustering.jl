@@ -7,6 +7,7 @@ using Statistics
 
 tests = ["seeding",
          "kmeans",
+         "spkmeans",
          "kmedoids",
          "affprop",
          "dbscan",

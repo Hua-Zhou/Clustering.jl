@@ -99,9 +99,9 @@ function _kmeans!(
 
     # initialize
 
-    k = size(centers, 2)
+    d, k = size(centers) # d = number of features, k = number of centers
     to_update = Vector{Bool}(undef, k) # indicators of whether a center needs to be updated
-    unused = Int[]
+    unused = Int[] # indices of centers with no members
     num_affected::Int = k # number of centers, to which the distances need to be recomputed
 
     dmat = pairwise(distance, centers, x)
@@ -125,24 +125,18 @@ function _kmeans!(
 
         update_centers!(x, w, assignments, to_update, centers, cweights, 
             sparsity, globalcenters, spcriterion, spsortidx, unshared)
-
-        if !isempty(unused)
-            repick_unused_centers(x, costs, centers, unused)
-        end
+            
+        isempty(unused) || repick_unused_centers(x, costs, centers, unused)
 
         # update pairwise distance matrix
 
-        if !isempty(unused)
-            to_update[unused] .= true
-        end
+        isempty(unused) || (to_update[unused] .= true)
 
         if t == 1 || num_affected > 0.75 * k
             pairwise!(dmat, distance, centers, x)
         else
             # if only a small subset is affected, only compute for that subset
-            affected_inds = findall(to_update)
-            dmat_p = pairwise(distance, centers[:, affected_inds], x)
-            dmat[affected_inds, :] .= dmat_p
+            pairwise!(dmat[to_update, :], distance, centers[:, to_update], x)
         end
 
         # update assignments
@@ -156,7 +150,7 @@ function _kmeans!(
         objv = w === nothing ? sum(costs) : dot(w, costs)
         objv_change = objv - prev_objv
 
-        if t > 1 && objv_change > tol
+        if t > 1 && objv_change > tol && displevel >= 2
             @warn("The objective value changes towards an opposite direction")
         end
 
@@ -207,24 +201,14 @@ function update_assignments!(
         fill!(to_update, true)
     else
         fill!(to_update, false)
-        if !isempty(unused)
-            empty!(unused)
-        end
+        isempty(unused) || empty!(unused)
     end
 
     # process each sample
     @inbounds for j = 1 : n
 
-        # find the closest cluster to the i-th sample
-        a::Int = 1
-        c::T = dmat[1, j]
-        for i = 2 : k
-            ci = dmat[i, j]
-            if ci < c
-                a = i
-                c = ci
-            end
-        end
+        # find the closest cluster to the j-th sample
+        c, a = findmin(view(dmat, :, j))
 
         # set/update the assignment
         if is_init
@@ -307,7 +291,7 @@ function update_centers!(
     for j = 1:k
         if to_update[j]
             @inbounds cj::T = 1 / cweights[j]
-            vj = view(centers,:,j)
+            vj = view(centers, :, j)
             for i = 1:d
                 @inbounds vj[i] *= cj
             end
@@ -317,12 +301,9 @@ function update_centers!(
     # sparse feature selection
     if sparsity < d
         # compute the sparsity criterion
-        fill!(spcriterion, 0)
-        for i in 1:d # features
-            for j in 1:k    # centers
-                spcriterion[i] += cweights[j] * centers[i, j] * centers[i, j]
-            end
-            spcriterion[i] -= n * globalcenters[i] * globalcenters[i]
+        spcriterion .= - n .* globalcenters .* globalcenters
+        for j in 1:k, i in 1:d # j center, i feature
+            spcriterion[i] += cweights[j] * centers[i, j] * centers[i, j]
         end
         # replace shared feature centers by global feature centers
         fill!(unshared, true)
